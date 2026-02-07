@@ -327,7 +327,7 @@ const App: React.FC = () => {
             </div>
             <p className="text-sm text-slate-600 leading-relaxed">
               • <span className="font-bold italic">y</span>: 前次排名, <span className="font-bold italic">x</span>: 后次排名<br/>
-              • <span className="text-emerald-700 font-bold">z > 0</span>：表示<span className="underline decoration-emerald-500/30">进步</span> (排名数值变小)<br/>
+              • <span className="text-emerald-700 font-bold">z &gt; 0</span>：表示<span className="underline decoration-emerald-500/30">进步</span> (排名数值变小)<br/>
               • <span className="text-rose-700 font-bold">z &lt; 0</span>：表示<span className="underline decoration-rose-500/30">退步</span> (排名数值变大)<br/>
               • <span className="font-bold">支持导入：</span>Excel、CSV、JSON格式文件。
             </p>
