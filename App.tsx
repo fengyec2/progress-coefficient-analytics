@@ -147,19 +147,49 @@ const App: React.FC = () => {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new();
     
+    // 1. Prepare Consolidated Detailed List
+    const consolidatedData: any[] = [];
     processedGroups.forEach(group => {
-      const data = group.records.map(rec => ({
+      group.records.forEach(rec => {
+        consolidatedData.push({
+          '分组名称': group.name,
+          '姓名': rec.name,
+          '前次排名': rec.oldRank,
+          '后次排名': rec.newRank,
+          '进退步系数': rec.coefficient !== null ? parseFloat(rec.coefficient.toFixed(4)) : '--'
+        });
+      });
+    });
+    
+    const wsDetails = XLSX.utils.json_to_sheet(consolidatedData);
+    XLSX.utils.book_append_sheet(wb, wsDetails, "全员明细");
+
+    // 2. Prepare Group Summary Data
+    const summaryData = processedGroups.map(group => ({
+      '分组名称': group.name,
+      '人数': group.records.filter(r => r.oldRank !== '' && r.newRank !== '').length,
+      '总进退步系数': parseFloat(group.totalCoefficient.toFixed(4)),
+      '平均进退步系数': parseFloat(group.averageCoefficient.toFixed(4)),
+      '是否优胜组': group.id === winnerId ? '是' : '否'
+    }));
+
+    const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, wsSummary, "各组汇总");
+
+    // 3. Optional: Add individual sheets for each group if needed
+    processedGroups.forEach(group => {
+      const groupSpecificData = group.records.map(rec => ({
         '姓名': rec.name,
         '前次排名': rec.oldRank,
         '后次排名': rec.newRank,
-        '进退步系数': rec.coefficient !== null ? rec.coefficient.toFixed(4) : '--'
+        '进退步系数': rec.coefficient !== null ? parseFloat(rec.coefficient.toFixed(4)) : '--'
       }));
-      
-      const ws = XLSX.utils.json_to_sheet(data);
-      XLSX.utils.book_append_sheet(wb, ws, group.name.substring(0, 31)); // Sheet name max length is 31
+      const wsGroup = XLSX.utils.json_to_sheet(groupSpecificData);
+      // Sheet names limited to 31 chars
+      XLSX.utils.book_append_sheet(wb, wsGroup, group.name.substring(0, 31));
     });
 
-    XLSX.writeFile(wb, `进退步分析报告-${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `全量进退步分析报告-${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleImportClick = () => {
@@ -197,6 +227,9 @@ const App: React.FC = () => {
           const importedGroups: GroupData[] = [];
 
           workbook.SheetNames.forEach((sheetName, index) => {
+            // Skip summary sheets if they look like exports from this app
+            if (sheetName === "全员明细" || sheetName === "各组汇总") return;
+
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
             
@@ -208,22 +241,55 @@ const App: React.FC = () => {
               coefficient: null
             }));
 
-            importedGroups.push({
-              id: `group-${Date.now()}-${index}`,
-              name: sheetName,
-              records: records.length > 0 ? records : [{ id: `rec-${Date.now()}-empty`, name: '', oldRank: '', newRank: '', coefficient: null }],
-              totalCoefficient: 0,
-              averageCoefficient: 0
-            });
+            if (records.length > 0 || jsonData.length > 0) {
+              importedGroups.push({
+                id: `group-${Date.now()}-${index}`,
+                name: sheetName,
+                records: records.length > 0 ? records : [{ id: `rec-${Date.now()}-empty`, name: '', oldRank: '', newRank: '', coefficient: null }],
+                totalCoefficient: 0,
+                averageCoefficient: 0
+              });
+            }
           });
+
+          // Fallback if we only have the "全员明细" sheet (flat file format)
+          if (importedGroups.length === 0 && workbook.SheetNames.includes("全员明细")) {
+            const worksheet = workbook.Sheets["全员明细"];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+            const groupsMap = new Map<string, RecordData[]>();
+            
+            jsonData.forEach((row, i) => {
+              const gName = String(row['分组名称'] || '未命名分组');
+              if (!groupsMap.has(gName)) groupsMap.set(gName, []);
+              groupsMap.get(gName)?.push({
+                id: `rec-${Date.now()}-flat-${i}`,
+                name: String(row['姓名'] || ''),
+                oldRank: row['前次排名'] !== undefined ? Number(row['前次排名']) : '',
+                newRank: row['后次排名'] !== undefined ? Number(row['后次排名']) : '',
+                coefficient: null
+              });
+            });
+
+            groupsMap.forEach((recs, name) => {
+              importedGroups.push({
+                id: `group-${Date.now()}-${name}`,
+                name: name,
+                records: recs,
+                totalCoefficient: 0,
+                averageCoefficient: 0
+              });
+            });
+          }
 
           if (importedGroups.length > 0) {
             setGroups(importedGroups);
             alert('Excel数据导入成功！');
+          } else {
+            alert('未在文件中发现有效数据，请检查列名是否包含“姓名”、“前次排名”、“后次排名”。');
           }
         } catch (err) {
           console.error(err);
-          alert('Excel导入失败，请检查文件格式是否包含“姓名”、“前次排名”、“后次排名”列。');
+          alert('Excel导入失败，请检查文件格式。');
         }
       };
       reader.readAsArrayBuffer(file);
@@ -266,12 +332,12 @@ const App: React.FC = () => {
               <button
                 onClick={exportToExcel}
                 className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
-                title="导出为Excel"
+                title="导出为Excel (全量数据汇总)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2m0 0h2a2 2 0 002-2v-2m-6 0h2a2 2 0 002-2v-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m0 10h2a2 2 0 002-2v-2m-6 0h2a2 2 0 002-2v-2m7 5v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2m0-10V5a2 2 0 012-2h2a2 2 0 012 2v2" />
                 </svg>
-                <span className="hidden sm:inline">EXCEL</span>
+                <span className="hidden sm:inline">导出EXCEL</span>
               </button>
               <button
                 onClick={exportToJson}
@@ -405,7 +471,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="text-center py-10 text-slate-400 text-sm">
-        <p>© {new Date().getFullYear()} 进退步系数分析工具 • 现已支持 Excel 导入导出</p>
+        <p>© {new Date().getFullYear()} 进退步系数分析工具 • 现已支持全量 Excel 导出汇总</p>
       </footer>
     </div>
   );
