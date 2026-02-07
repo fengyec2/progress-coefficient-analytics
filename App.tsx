@@ -406,7 +406,7 @@ const App: React.FC = () => {
             </div>
           )}
 
-          <div className={`${showAlgorithm ? 'lg:col-span-2' : 'lg:col-span-2'} bg-slate-900 p-6 rounded-2xl border border-slate-800 text-white shadow-xl shadow-slate-200 min-h-[220px]`}>
+          <div className={`${showAlgorithm ? 'lg:col-span-2' : 'lg:col-span-2'} bg-slate-900 p-6 rounded-2xl border border-slate-800 text-white shadow-xl shadow-slate-200 min-h-[260px]`}>
             <div className="flex flex-col md:flex-row gap-6 items-start md:items-center h-full">
               <div className="flex-1">
                 <h2 className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">实时优胜组排行榜</h2>
@@ -428,9 +428,9 @@ const App: React.FC = () => {
                   <div className="text-slate-500 italic">等待数据输入...</div>
                 )}
               </div>
-              <div className="w-full md:w-80 h-48 md:h-full min-h-[160px]">
+              <div className="w-full md:w-[400px] h-64 md:h-full min-h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
+                  <BarChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 60 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                     <XAxis 
                       dataKey="name" 
@@ -439,6 +439,9 @@ const App: React.FC = () => {
                       tick={{fill: '#94a3b8'}} 
                       axisLine={false} 
                       tickLine={false}
+                      interval={0}
+                      angle={-45}
+                      textAnchor="end"
                     />
                     <Tooltip 
                       cursor={{fill: '#1e293b'}}
