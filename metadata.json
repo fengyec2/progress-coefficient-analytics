@@ -1,0 +1,5 @@
+{
+  "name": "Progress Coefficient Analytics",
+  "description": "A professional analytical tool to calculate and visualize progress coefficients (z = 2*(x-y)/(x+y)) for academic or competitive rankings, supporting multi-group management and real-time winning group detection.",
+  "requestFramePermissions": []
+}
