@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { GroupData, RecordData } from './types';
 import { calculateZ } from './utils';
 import GroupCard from './components/GroupCard';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import * as XLSX from 'xlsx';
 
 const INITIAL_GROUPS: GroupData[] = [
@@ -21,6 +21,7 @@ const INITIAL_GROUPS: GroupData[] = [
 
 const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAlgorithm, setShowAlgorithm] = useState(false);
   const [groups, setGroups] = useState<GroupData[]>(() => {
     const saved = localStorage.getItem('progress-analytics-data');
     if (saved) {
@@ -147,7 +148,6 @@ const App: React.FC = () => {
   const exportToExcel = () => {
     const wb = XLSX.utils.book_new();
     
-    // 1. Prepare Consolidated Detailed List
     const consolidatedData: any[] = [];
     processedGroups.forEach(group => {
       group.records.forEach(rec => {
@@ -164,7 +164,6 @@ const App: React.FC = () => {
     const wsDetails = XLSX.utils.json_to_sheet(consolidatedData);
     XLSX.utils.book_append_sheet(wb, wsDetails, "全员明细");
 
-    // 2. Prepare Group Summary Data
     const summaryData = processedGroups.map(group => ({
       '分组名称': group.name,
       '人数': group.records.filter(r => r.oldRank !== '' && r.newRank !== '').length,
@@ -176,7 +175,6 @@ const App: React.FC = () => {
     const wsSummary = XLSX.utils.json_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, "各组汇总");
 
-    // 3. Optional: Add individual sheets for each group if needed
     processedGroups.forEach(group => {
       const groupSpecificData = group.records.map(rec => ({
         '姓名': rec.name,
@@ -185,7 +183,6 @@ const App: React.FC = () => {
         '进退步系数': rec.coefficient !== null ? parseFloat(rec.coefficient.toFixed(4)) : '--'
       }));
       const wsGroup = XLSX.utils.json_to_sheet(groupSpecificData);
-      // Sheet names limited to 31 chars
       XLSX.utils.book_append_sheet(wb, wsGroup, group.name.substring(0, 31));
     });
 
@@ -227,7 +224,6 @@ const App: React.FC = () => {
           const importedGroups: GroupData[] = [];
 
           workbook.SheetNames.forEach((sheetName, index) => {
-            // Skip summary sheets if they look like exports from this app
             if (sheetName === "全员明细" || sheetName === "各组汇总") return;
 
             const worksheet = workbook.Sheets[sheetName];
@@ -252,7 +248,6 @@ const App: React.FC = () => {
             }
           });
 
-          // Fallback if we only have the "全员明细" sheet (flat file format)
           if (importedGroups.length === 0 && workbook.SheetNames.includes("全员明细")) {
             const worksheet = workbook.Sheets["全员明细"];
             const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
@@ -330,6 +325,16 @@ const App: React.FC = () => {
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center border-r border-slate-200 pr-2 sm:pr-4 gap-1">
               <button
+                onClick={() => setShowAlgorithm(!showAlgorithm)}
+                className={`p-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold ${showAlgorithm ? 'text-blue-600 bg-blue-50' : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'}`}
+                title="查看算法说明"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="hidden sm:inline">算法说明</span>
+              </button>
+              <button
                 onClick={exportToExcel}
                 className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
                 title="导出为Excel (全量数据汇总)"
@@ -380,26 +385,28 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-          <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200 flex flex-col justify-center">
-            <h2 className="text-slate-900 font-bold mb-3 flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              算法说明 (排名制)
-            </h2>
-            <div className="bg-white/60 p-4 rounded-xl font-mono text-center text-slate-800 mb-4 shadow-inner">
-              z = 2 * (y - x) / (x + y)
+        <div className={`grid grid-cols-1 ${showAlgorithm ? 'lg:grid-cols-3' : 'lg:grid-cols-2'} gap-8 mb-12 transition-all duration-500`}>
+          {showAlgorithm && (
+            <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200 flex flex-col justify-center animate-in fade-in slide-in-from-left-4 duration-300">
+              <h2 className="text-slate-900 font-bold mb-3 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                算法说明 (排名制)
+              </h2>
+              <div className="bg-white/60 p-4 rounded-xl font-mono text-center text-slate-800 mb-4 shadow-inner">
+                z = 2 * (y - x) / (x + y)
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                • <span className="font-bold italic">y</span>: 前次排名, <span className="font-bold italic">x</span>: 后次排名<br/>
+                • <span className="text-emerald-700 font-bold">z &gt; 0</span>：表示<span className="underline decoration-emerald-500/30">进步</span> (排名数字变小)<br/>
+                • <span className="text-rose-700 font-bold">z &lt; 0</span>：表示<span className="underline decoration-rose-500/30">退步</span> (排名数值变大)<br/>
+                • <span className="font-bold">提示：</span>数值越大代表进步越明显。
+              </p>
             </div>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              • <span className="font-bold italic">y</span>: 前次排名, <span className="font-bold italic">x</span>: 后次排名<br/>
-              • <span className="text-emerald-700 font-bold">z &gt; 0</span>：表示<span className="underline decoration-emerald-500/30">进步</span> (排名数值变小)<br/>
-              • <span className="text-rose-700 font-bold">z &lt; 0</span>：表示<span className="underline decoration-rose-500/30">退步</span> (排名数值变大)<br/>
-              • <span className="font-bold">支持导入：</span>Excel、CSV、JSON格式文件。
-            </p>
-          </div>
+          )}
 
-          <div className="lg:col-span-2 bg-slate-900 p-6 rounded-2xl border border-slate-800 text-white shadow-xl shadow-slate-200">
+          <div className={`${showAlgorithm ? 'lg:col-span-2' : 'lg:col-span-2'} bg-slate-900 p-6 rounded-2xl border border-slate-800 text-white shadow-xl shadow-slate-200 min-h-[220px]`}>
             <div className="flex flex-col md:flex-row gap-6 items-start md:items-center h-full">
               <div className="flex-1">
                 <h2 className="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-1">实时优胜组排行榜</h2>
@@ -421,19 +428,34 @@ const App: React.FC = () => {
                   <div className="text-slate-500 italic">等待数据输入...</div>
                 )}
               </div>
-              <div className="w-full md:w-64 h-32 md:h-full min-h-[140px]">
+              <div className="w-full md:w-80 h-48 md:h-full min-h-[160px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData}>
+                  <BarChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} hide />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#94a3b8" 
+                      fontSize={11} 
+                      tick={{fill: '#94a3b8'}} 
+                      axisLine={false} 
+                      tickLine={false}
+                    />
                     <Tooltip 
                       cursor={{fill: '#1e293b'}}
                       contentStyle={{backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '8px', color: '#fff'}}
                     />
-                    <Bar dataKey="avg" radius={[4, 4, 0, 0]}>
+                    <Bar dataKey="avg" radius={[4, 4, 0, 0]} barSize={40}>
                       {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.isWinner ? '#10b981' : '#ef4444'} />
+                        <Cell key={`cell-${index}`} fill={entry.avg >= 0 ? '#10b981' : '#ef4444'} />
                       ))}
+                      <LabelList 
+                        dataKey="avg" 
+                        position="top" 
+                        fill="#fff" 
+                        fontSize={10} 
+                        fontWeight="bold"
+                        formatter={(val: number) => val.toFixed(3)}
+                      />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
