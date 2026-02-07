@@ -4,6 +4,7 @@ import { GroupData, RecordData } from './types';
 import { calculateZ } from './utils';
 import GroupCard from './components/GroupCard';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import * as XLSX from 'xlsx';
 
 const INITIAL_GROUPS: GroupData[] = [
   {
@@ -32,7 +33,6 @@ const App: React.FC = () => {
     return INITIAL_GROUPS;
   });
 
-  // Calculate coefficients in real-time
   const processedGroups = useMemo(() => {
     return groups.map(group => {
       let total = 0;
@@ -40,7 +40,6 @@ const App: React.FC = () => {
       const records = group.records.map(rec => {
         let z: number | null = null;
         if (rec.oldRank !== '' && rec.newRank !== '') {
-          // x = newRank, y = oldRank
           z = calculateZ(Number(rec.newRank), Number(rec.oldRank));
           total += z;
           count++;
@@ -57,23 +56,18 @@ const App: React.FC = () => {
     });
   }, [groups]);
 
-  // Persistent storage
   useEffect(() => {
     localStorage.setItem('progress-analytics-data', JSON.stringify(processedGroups));
   }, [processedGroups]);
 
-  // Determine winner (HIGHEST average coefficient = best progress)
   const winnerId = useMemo(() => {
     const validGroups = processedGroups.filter(g => g.records.some(r => r.coefficient !== null));
     if (validGroups.length === 0) return null;
-    
-    // 系数越大代表进步越明显
     return validGroups.reduce((prev, curr) => 
       curr.averageCoefficient > prev.averageCoefficient ? curr : prev
     , validGroups[0]).id;
   }, [processedGroups]);
 
-  // Handlers
   const addGroup = () => {
     const newGroup: GroupData = {
       id: `group-${Date.now()}`,
@@ -140,15 +134,32 @@ const App: React.FC = () => {
     }
   };
 
-  const exportData = () => {
+  const exportToJson = () => {
     const dataStr = JSON.stringify(processedGroups, null, 2);
     const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
     const exportFileDefaultName = `progress-analysis-${new Date().toISOString().split('T')[0]}.json`;
-    
     const linkElement = document.createElement('a');
     linkElement.setAttribute('href', dataUri);
     linkElement.setAttribute('download', exportFileDefaultName);
     linkElement.click();
+  };
+
+  const exportToExcel = () => {
+    const wb = XLSX.utils.book_new();
+    
+    processedGroups.forEach(group => {
+      const data = group.records.map(rec => ({
+        '姓名': rec.name,
+        '前次排名': rec.oldRank,
+        '后次排名': rec.newRank,
+        '进退步系数': rec.coefficient !== null ? rec.coefficient.toFixed(4) : '--'
+      }));
+      
+      const ws = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, group.name.substring(0, 31)); // Sheet name max length is 31
+    });
+
+    XLSX.writeFile(wb, `进退步分析报告-${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleImportClick = () => {
@@ -159,26 +170,68 @@ const App: React.FC = () => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const fileName = file.name.toLowerCase();
     const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const result = e.target?.result as string;
-        const importedGroups = JSON.parse(result);
-        if (Array.isArray(importedGroups)) {
-          setGroups(importedGroups);
-          alert('数据导入成功！');
-        } else {
-          throw new Error('无效的数据格式');
+
+    if (fileName.endsWith('.json')) {
+      reader.onload = (e) => {
+        try {
+          const result = e.target?.result as string;
+          const importedGroups = JSON.parse(result);
+          if (Array.isArray(importedGroups)) {
+            setGroups(importedGroups);
+            alert('JSON数据导入成功！');
+          } else {
+            throw new Error('无效的JSON格式');
+          }
+        } catch (err) {
+          alert('导入失败：请确保JSON文件格式正确。');
         }
-      } catch (err) {
-        alert('导入失败：请确保文件格式正确。');
-      }
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    reader.readAsText(file);
+      };
+      reader.readAsText(file);
+    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const importedGroups: GroupData[] = [];
+
+          workbook.SheetNames.forEach((sheetName, index) => {
+            const worksheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+            
+            const records: RecordData[] = jsonData.map((row, i) => ({
+              id: `rec-${Date.now()}-${index}-${i}`,
+              name: String(row['姓名'] || row['Name'] || ''),
+              oldRank: (row['前次排名'] || row['Previous Rank'] || row['Old Rank']) !== undefined ? Number(row['前次排名'] || row['Previous Rank'] || row['Old Rank']) : '',
+              newRank: (row['后次排名'] || row['Current Rank'] || row['New Rank']) !== undefined ? Number(row['后次排名'] || row['Current Rank'] || row['New Rank']) : '',
+              coefficient: null
+            }));
+
+            importedGroups.push({
+              id: `group-${Date.now()}-${index}`,
+              name: sheetName,
+              records: records.length > 0 ? records : [{ id: `rec-${Date.now()}-empty`, name: '', oldRank: '', newRank: '', coefficient: null }],
+              totalCoefficient: 0,
+              averageCoefficient: 0
+            });
+          });
+
+          if (importedGroups.length > 0) {
+            setGroups(importedGroups);
+            alert('Excel数据导入成功！');
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Excel导入失败，请检查文件格式是否包含“姓名”、“前次排名”、“后次排名”列。');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Chart Data
   const chartData = useMemo(() => {
     return processedGroups.map(g => ({
       name: g.name,
@@ -193,7 +246,7 @@ const App: React.FC = () => {
         type="file" 
         ref={fileInputRef} 
         className="hidden" 
-        accept=".json" 
+        accept=".json,.xlsx,.xls,.csv" 
         onChange={importData} 
       />
 
@@ -210,19 +263,30 @@ const App: React.FC = () => {
           
           <div className="flex items-center gap-2 sm:gap-4">
             <div className="flex items-center border-r border-slate-200 pr-2 sm:pr-4 gap-1">
-               <button
-                onClick={exportData}
-                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="导出数据"
+              <button
+                onClick={exportToExcel}
+                className="p-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                title="导出为Excel"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a2 2 0 00-2-2H5a2 2 0 00-2 2v2m0 0h2a2 2 0 002-2v-2m-6 0h2a2 2 0 002-2v-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2m0 10h2a2 2 0 002-2v-2m-6 0h2a2 2 0 002-2v-2m7 5v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2m0-10V5a2 2 0 012-2h2a2 2 0 012 2v2" />
+                </svg>
+                <span className="hidden sm:inline">EXCEL</span>
+              </button>
+              <button
+                onClick={exportToJson}
+                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
+                title="导出为JSON"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
+                <span className="hidden sm:inline">JSON</span>
               </button>
               <button
                 onClick={handleImportClick}
                 className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="导入数据"
+                title="导入数据 (支持 .json, .xlsx, .csv)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -251,7 +315,6 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
-          {/* Formula Info - Updated logic description */}
           <div className="bg-slate-100 p-6 rounded-2xl border border-slate-200 flex flex-col justify-center">
             <h2 className="text-slate-900 font-bold mb-3 flex items-center gap-2">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -266,7 +329,7 @@ const App: React.FC = () => {
               • <span className="font-bold italic">y</span>: 前次排名, <span className="font-bold italic">x</span>: 后次排名<br/>
               • <span className="text-emerald-700 font-bold">z > 0</span>：表示<span className="underline decoration-emerald-500/30">进步</span> (排名数值变小)<br/>
               • <span className="text-rose-700 font-bold">z &lt; 0</span>：表示<span className="underline decoration-rose-500/30">退步</span> (排名数值变大)<br/>
-              优胜组判定：平均进退步系数 <span className="font-bold">最大</span> 的小组。
+              • <span className="font-bold">支持导入：</span>Excel、CSV、JSON格式文件。
             </p>
           </div>
 
@@ -342,7 +405,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="text-center py-10 text-slate-400 text-sm">
-        <p>© {new Date().getFullYear()} 进退步系数分析工具 • 排名系统适配版</p>
+        <p>© {new Date().getFullYear()} 进退步系数分析工具 • 现已支持 Excel 导入导出</p>
       </footer>
     </div>
   );
